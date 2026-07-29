@@ -5,8 +5,7 @@
 #include <fstream>
 
 Orchestrator::Orchestrator()
-: window(sf::VideoMode({window_width, window_length}
-), "habit Tracker")
+: window(sf::VideoMode(window_width, window_length), "habit Tracker")
 {
 
     run();

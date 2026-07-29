@@ -7,7 +7,7 @@ class HabitSquare
 {
     public:
 
-    HabitSquare(int w_loc, int h_loc, int color = 0, int square_num);
+    HabitSquare(int w_loc, int h_loc, int color = 0, int square_num = 0);
     void draw(sf::RenderWindow& window);
     void onClick(sf::Vector2f mousePos, sf::Mouse::Button clickType);
     int getClicked(){return clicked;}
@@ -24,6 +24,5 @@ class HabitSquare
     sf::Color squareColor{255,255,255};
     sf::Color squareOutline{0,0,0};
     sf::Text square_date_text;
-    sf::Font text_font = orchestrator.habit_font;
 
 };

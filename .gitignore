@@ -1,0 +1,7 @@
+# Build artifacts
+*.o
+app
+build/
+
+# Data (user-specific)
+data/mem.txt
