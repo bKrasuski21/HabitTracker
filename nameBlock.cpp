@@ -1,17 +1,16 @@
 #include "nameBlock.hpp"
 
-NameBlock::NameBlock(std::string name, int height)
+NameBlock::NameBlock(std::string name, int height,const sf::Font& loaded_font)
 :
 habit_name(name),
-height_loc(height)
+height_loc(height),
+habit_font(loaded_font)
 {
 
 }   
 
 void NameBlock::initialize(){
-    if(!this->habit_font.loadFromFile("font.ttf")){
-        return;
-    }   
+    
     this->habit_text.setFont(this->habit_font);
     this->habit_text.setString(this->habit_name);
     this->habit_text.setCharacterSize(50);

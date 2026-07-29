@@ -18,10 +18,11 @@ class Orchestrator
     void initialize_grid();
     void draw();
     void build_habit_column();
-    void onClick(sf::Vector2f mousePos);
+    void onClick(sf::Vector2f mousePos, sf::Mouse::Button clickType);
     void readMemoryFile();
     void writeMemoryFile();
-    
+    sf::Font habit_font;
+
     private:
     std::vector<HabitRow> grid;
     std::vector<std::string> habits;

@@ -8,7 +8,8 @@ Orchestrator::Orchestrator()
 : window(sf::VideoMode({window_width, window_length}
 ), "habit Tracker")
 {
-    
+
+    run();
 }
 
 
@@ -17,6 +18,9 @@ void Orchestrator::run(){
     std::cout << "create new habit memory sheet? : (yes|no)" << std::endl;
     std::string response;
     std::cin >> response;
+    if(!habit_font.loadFromFile("font.ttf")){
+        throw std::runtime_error("Failed to load font: font.ttf"); 
+    }
     if(response == "no") { 
         this->readMemoryFile();
     }else {
@@ -33,10 +37,10 @@ void Orchestrator::run(){
                 this->window.close();
             }  
             if(event.type==sf::Event::MouseButtonPressed){
-                
                 sf::Vector2f mousePos(event.mouseButton.x, event.mouseButton.y);
-
-                onClick(mousePos);
+                onClick(mousePos, event.mouseButton.button);
+                
+                
             }
         }
         window.clear();
@@ -90,7 +94,7 @@ void Orchestrator::readMemoryFile(){
     }
     for(int i = 0; i <this->habits.size(); i++){
         int height = i * 57;
-        NameBlock habitBlock(habits[i], height);
+        NameBlock habitBlock(habits[i], height, habit_font);
         this->name_column.push_back(habitBlock);
     }
 
@@ -128,7 +132,7 @@ void Orchestrator::initialize_grid(){
 
     for(int i = 0; i <this->habits.size(); i++){
         int height = i * 57;
-        NameBlock habitBlock(habits[i], height);
+        NameBlock habitBlock(habits[i], height, habit_font);
         this->name_column.push_back(habitBlock);
     }
 
@@ -147,9 +151,10 @@ void Orchestrator::draw(){
     }
 }
 
-void Orchestrator::onClick(sf::Vector2f mousePos){
+void Orchestrator::onClick(sf::Vector2f mousePos, sf::Mouse::Button clickType){
     std::cout << "Register click" << std::endl;
     for(int i =0; i < grid.size(); i++){
-        grid[i].onClick(mousePos);
+        grid[i].onClick(mousePos, clickType);
     }
 }
+

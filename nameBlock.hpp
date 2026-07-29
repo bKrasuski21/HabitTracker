@@ -5,7 +5,7 @@
 
 class NameBlock{
     public:
-    NameBlock(std::string name, int height); // still need to get height and set it to height_loc
+    NameBlock(std::string name, int height,const sf::Font& loaded_font); // still need to get height and set it to height_loc
     void initialize(); // create text block, set text block to name, set width and height locations.
     void draw(sf::RenderWindow& window);
     std::string getString() {return this->habit_text.getString();}

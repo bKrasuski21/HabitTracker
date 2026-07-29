@@ -11,7 +11,7 @@ class HabitRow
     void initialize_row();
     void initialize_row(std::string data);
     void draw(sf::RenderWindow& window);
-    void onClick(sf::Vector2f mousPos);
+    void onClick(sf::Vector2f mousPos, sf::Mouse::Button clickType);
     std::string rowData();
     
     private:
