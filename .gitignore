@@ -1,7 +1,7 @@
-# Build artifacts
-*.o
-app
+# Build output
 build/
+compile_commands.json
 
-# Data (user-specific)
-data/mem.txt
+# Habit data is personal; the directory is kept, its contents are not.
+data/*
+!data/.gitkeep

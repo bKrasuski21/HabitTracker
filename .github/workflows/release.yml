@@ -15,14 +15,14 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            name: linux-x86_64
             artifact: HabitTracker-linux-x86_64
+            binary: build/HabitTracker
           - os: macos-latest
-            name: macos
             artifact: HabitTracker-macos
+            binary: build/HabitTracker
           - os: windows-latest
-            name: windows-x86_64
             artifact: HabitTracker-windows-x86_64
+            binary: build/Release/HabitTracker.exe
 
     runs-on: ${{ matrix.os }}
 
@@ -37,43 +37,36 @@ jobs:
             libx11-dev libxrandr-dev libxcursor-dev libxi-dev \
             libudev-dev libgl-dev libfreetype-dev
 
-      - name: Configure CMake (macOS universal binary)
+      # SFML is built from source here so the archives are self-contained.
+      - name: Configure (macOS universal binary)
         if: runner.os == 'macOS'
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+        run: >
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
 
-      - name: Configure CMake
+      - name: Configure
         if: runner.os != 'macOS'
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
         run: cmake --build build --config Release
 
-      - name: Package (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          mkdir -p ${{ matrix.artifact }}/data
-          cp build/HabitTracker ${{ matrix.artifact }}/
-          cp font.ttf ${{ matrix.artifact }}/
-          chmod +x ${{ matrix.artifact }}/HabitTracker
-          tar -czf ${{ matrix.artifact }}.tar.gz ${{ matrix.artifact }}
+      # A release that fails its own tests should never be published.
+      - name: Test
+        run: ctest --test-dir build --build-config Release --output-on-failure
 
-      - name: Package (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          mkdir -p ${{ matrix.artifact }}/data
-          cp build/HabitTracker ${{ matrix.artifact }}/
-          cp font.ttf ${{ matrix.artifact }}/
-          chmod +x ${{ matrix.artifact }}/HabitTracker
-          tar -czf ${{ matrix.artifact }}.tar.gz ${{ matrix.artifact }}
-
-      - name: Package (Windows)
-        if: runner.os == 'Windows'
+      - name: Package
         shell: bash
         run: |
-          mkdir -p ${{ matrix.artifact }}/data
-          cp build/Release/HabitTracker.exe ${{ matrix.artifact }}/
-          cp font.ttf ${{ matrix.artifact }}/
-          7z a ${{ matrix.artifact }}.zip ${{ matrix.artifact }}
+          mkdir -p "${{ matrix.artifact }}/data"
+          cp "${{ matrix.binary }}" "${{ matrix.artifact }}/"
+          cp font.ttf README.md "${{ matrix.artifact }}/"
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            7z a "${{ matrix.artifact }}.zip" "${{ matrix.artifact }}"
+          else
+            chmod +x "${{ matrix.artifact }}"/HabitTracker
+            tar -czf "${{ matrix.artifact }}.tar.gz" "${{ matrix.artifact }}"
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -93,6 +86,5 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            artifacts/**/*
+          files: artifacts/**/*
           generate_release_notes: true
