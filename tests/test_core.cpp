@@ -3,6 +3,7 @@
 
 #include "TestHarness.hpp"
 #include "core/Date.hpp"
+#include "core/HabitEdits.hpp"
 #include "core/HabitName.hpp"
 #include "core/HabitTrack.hpp"
 #include "core/Mark.hpp"
@@ -247,4 +248,120 @@ HT_TEST(togglingThroughTheYearIsCheckedAndReturnsTheResult) {
     HT_CHECK_THROWS_AS(year.toggle(Month::February, 0, 28U, Mark::Done),
                        std::out_of_range);  // 2026 February has 28 days
     HT_CHECK_THROWS_AS(Year(kMinYear - 1), std::out_of_range);
+}
+
+// -- HabitEdits -----------------------------------------------------------
+
+namespace {
+
+[[nodiscard]] Year yearWith(const std::vector<HabitName>& names) {
+    return Year(2026, names);
+}
+
+// Not named add/remove: an unqualified removeEdit("gym") resolves to
+// std::remove(const char*) -- the one that deletes a file -- in preference to an
+// overload taking std::string_view.
+[[nodiscard]] HabitEdit addEdit(std::string_view name) {
+    return HabitEdit{HabitEdit::Kind::Add, HabitName(name)};
+}
+
+[[nodiscard]] HabitEdit removeEdit(std::string_view name) {
+    return HabitEdit{HabitEdit::Kind::Remove, HabitName(name)};
+}
+
+}  // namespace
+
+HT_TEST(aBatchOfEditsAppliesInOrderAndKeepsEveryMonthAligned) {
+    Year year = yearWith({HabitName("gym"), HabitName("read")});
+    const HabitEditReport report =
+        applyHabitEdits(year, {removeEdit("gym"), addEdit("stretch"), addEdit("floss")});
+
+    HT_CHECK(report.ok());
+    HT_CHECK_EQ(report.applied.size(), std::size_t{3});
+    HT_CHECK_EQ(year.habitCount(), std::size_t{3});
+    HT_CHECK(!year.indexOf(HabitName("gym")).has_value());
+    HT_CHECK(year.indexOf(HabitName("stretch")).has_value());
+
+    // The Year invariant that matters: a habit exists in all twelve months.
+    for (const MonthSheet& sheet : year.months()) {
+        HT_CHECK_EQ(sheet.habitCount(), std::size_t{3});
+        HT_CHECK(sheet.indexOf(HabitName("floss")).has_value());
+    }
+}
+
+HT_TEST(oneBadEditLeavesTheWholeYearUntouched) {
+    Year year = yearWith({HabitName("gym")});
+    const Year before = year;
+
+    const HabitEditReport report =
+        applyHabitEdits(year, {addEdit("read"), removeEdit("nonexistent"), addEdit("floss")});
+
+    HT_CHECK(!report.ok());
+    HT_CHECK_EQ(report.problems.size(), std::size_t{1});
+    HT_CHECK(report.applied.empty());
+    // The two valid edits either side of the bad one must not have landed.
+    HT_CHECK(year == before);
+}
+
+HT_TEST(everyProblemIsReportedNotJustTheFirst) {
+    Year year = yearWith({HabitName("gym")});
+    const HabitEditReport report =
+        applyHabitEdits(year, {addEdit("gym"), removeEdit("missing"), addEdit("gym")});
+    HT_CHECK_EQ(report.problems.size(), std::size_t{3});
+}
+
+HT_TEST(namingTheSameHabitTwiceInOneBatchIsRefused) {
+    Year year = yearWith({HabitName("gym")});
+    HT_CHECK(!applyHabitEdits(year, {addEdit("read"), addEdit("read")}).ok());
+    HT_CHECK(!applyHabitEdits(year, {removeEdit("gym"), removeEdit("gym")}).ok());
+    HT_CHECK_EQ(year.habitCount(), std::size_t{1});
+}
+
+HT_TEST(aHabitCanBeRemovedAndReaddedInOneBatchStartingFresh) {
+    Year year = yearWith({HabitName("gym")});
+    year.toggle(Month::March, 0, 4U, Mark::Done);
+
+    HT_CHECK(applyHabitEdits(year, {removeEdit("gym"), addEdit("gym")}).ok());
+    HT_CHECK_EQ(year.habitCount(), std::size_t{1});
+    HT_CHECK(year.anyMarked() == false);  // Re-adding starts unmarked.
+}
+
+HT_TEST(removalReportsTheMarksItWouldDiscard) {
+    Year year = yearWith({HabitName("gym"), HabitName("read")});
+    year.toggle(Month::January, 0, 0U, Mark::Done);
+    year.toggle(Month::March, 0, 4U, Mark::Partial);
+    year.toggle(Month::March, 1, 4U, Mark::Done);
+
+    HT_CHECK_EQ(markedDayCount(year, HabitName("gym")), std::size_t{2});
+    HT_CHECK_EQ(markedDayCount(year, HabitName("read")), std::size_t{1});
+    HT_CHECK_EQ(markedDayCount(year, HabitName("never tracked")), std::size_t{0});
+
+    const HabitEditReport plan = planHabitEdits(year, {removeEdit("gym")});
+    HT_CHECK(plan.ok());
+    HT_CHECK_EQ(plan.marksDiscarded, std::size_t{2});
+}
+
+HT_TEST(planningNeverChangesTheYear) {
+    Year year = yearWith({HabitName("gym")});
+    const Year before = year;
+    (void)planHabitEdits(year, {addEdit("read"), removeEdit("gym")});
+    HT_CHECK(year == before);
+}
+
+HT_TEST(anEmptyBatchIsAcceptedAndDoesNothing) {
+    Year year = yearWith({HabitName("gym")});
+    const HabitEditReport report = applyHabitEdits(year, std::vector<HabitEdit>{});
+    HT_CHECK(report.ok());
+    HT_CHECK(report.applied.empty());
+    HT_CHECK_EQ(report.marksDiscarded, std::size_t{0});
+    HT_CHECK_EQ(year.habitCount(), std::size_t{1});
+}
+
+HT_TEST(removingTheLastHabitLeavesAnEmptyButValidYear) {
+    Year year = yearWith({HabitName("gym")});
+    HT_CHECK(applyHabitEdits(year, {removeEdit("gym")}).ok());
+    HT_CHECK(year.empty());
+    for (const MonthSheet& sheet : year.months()) {
+        HT_CHECK_EQ(sheet.habitCount(), std::size_t{0});
+    }
 }

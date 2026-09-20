@@ -1,4 +1,5 @@
 #include <charconv>
+#include <cstddef>
 #include <cstdlib>
 #include <exception>
 #include <filesystem>
@@ -11,6 +12,8 @@
 #include "app/App.hpp"
 #include "app/Bootstrap.hpp"
 #include "core/Date.hpp"
+#include "core/HabitEdits.hpp"
+#include "core/HabitName.hpp"
 #include "core/HabitStore.hpp"
 #include "core/Paths.hpp"
 
@@ -27,8 +30,16 @@ void printUsage(std::ostream& out) {
         << "  --font <path>      TrueType font to render with.\n"
         << "                     Default: font.ttf beside the executable.\n"
         << "  --year <number>    Year to open. Default: the current year.\n"
-        << "  --month <1-12>     Month to open. Default: the current month.\n"
-        << "  --help             Show this message.\n\n"
+        << "  --month <1-12>     Month to open. Default: the current month.\n\n"
+        << "  --add-habit <name>     Start tracking a habit. May be repeated.\n"
+        << "  --remove-habit <name>  Stop tracking a habit and erase its marks.\n"
+        << "                         May be repeated. Asks first.\n"
+        << "  --list-habits          Print this year's habits.\n"
+        << "  --yes, -y              Answer yes to the --remove-habit prompt.\n"
+        << "                         These four report and exit without opening\n"
+        << "                         the window; habits can also be added and\n"
+        << "                         removed inside the app.\n"
+        << "  --help                 Show this message.\n\n"
         << "Left click marks a day done, right click marks it partial, and clicking\n"
         << "the same mark again clears it. Left and Right arrows change month.\n"
         << "Changes are saved automatically.\n";
@@ -47,8 +58,24 @@ void printUsage(std::ostream& out) {
 
 struct Options final {
     ht::App::Config config;
+    /// --add-habit and --remove-habit, in the order given: the order is what
+    /// makes "remove x, add x" mean something different from "add x, remove x".
+    std::vector<ht::HabitEdit> habitEdits;
+    bool listHabits = false;
+    bool assumeYes = false;
     bool showHelp = false;
 };
+
+/// Parses a habit name from the command line, reporting why it was rejected.
+[[nodiscard]] std::optional<ht::HabitName> parseHabitName(std::string_view text,
+                                                          std::string_view flag) {
+    std::optional<ht::HabitName> name = ht::HabitName::tryMake(text);
+    if (!name.has_value()) {
+        std::cerr << "HabitTracker: " << flag << " \"" << text
+                  << "\": " << ht::HabitName::rejectionReason(text) << ".\n";
+    }
+    return name;
+}
 
 /// Parses the command line. Returns nullopt after reporting a usage error.
 [[nodiscard]] std::optional<Options> parseArguments(const std::vector<std::string_view>& args) {
@@ -103,6 +130,19 @@ struct Options final {
             }
             options.config.startMonth =
                 ht::monthFromIndex(static_cast<std::size_t>(*month - 1));
+        } else if (arg == "--add-habit" || arg == "--remove-habit") {
+            const std::optional<std::string_view> value = next(arg);
+            if (!value.has_value()) return std::nullopt;
+            const std::optional<ht::HabitName> name = parseHabitName(*value, arg);
+            if (!name.has_value()) return std::nullopt;
+            options.habitEdits.push_back({arg == "--add-habit"
+                                              ? ht::HabitEdit::Kind::Add
+                                              : ht::HabitEdit::Kind::Remove,
+                                          *name});
+        } else if (arg == "--list-habits") {
+            options.listHabits = true;
+        } else if (arg == "--yes" || arg == "-y") {
+            options.assumeYes = true;
         } else {
             std::cerr << "HabitTracker: unknown option \"" << arg << "\".\n\n";
             printUsage(std::cerr);
@@ -114,7 +154,7 @@ struct Options final {
     // the current month; that is still a valid month, so nothing to reconcile.
     options.config.fontPath =
         fontOverride.value_or(ht::paths::locateResource(kDefaultFontName));
-    if (options.config.fontPath.empty()) {
+    if (options.config.fontPath.empty() && !options.listHabits) {
         std::cerr << "HabitTracker: could not find " << kDefaultFontName
                   << " beside the executable or in the current directory.\n"
                   << "Pass --font <path> to point at one.\n";
@@ -123,10 +163,90 @@ struct Options final {
     return options;
 }
 
-int runApplication(const ht::App::Config& config) {
+void printHabits(const ht::Year& year, std::ostream& out) {
+    if (year.empty()) {
+        out << "No habits are tracked for " << year.number() << " yet.\n";
+        return;
+    }
+    out << year.habitCount() << " habit" << (year.habitCount() == 1 ? "" : "s")
+        << " tracked for " << year.number() << ":\n";
+    for (const ht::HabitName& name : year.habitNames()) {
+        const std::size_t marked = ht::markedDayCount(year, name);
+        out << "  " << name.str() << "  (" << marked << " marked day"
+            << (marked == 1 ? "" : "s") << ")\n";
+    }
+}
+
+/// Asks before a removal throws marks away. End of input is not consent.
+[[nodiscard]] bool confirmDiscard(std::size_t marks, std::istream& in, std::ostream& out) {
+    out << "That erases " << marks << " marked day" << (marks == 1 ? "" : "s")
+        << ", which cannot be undone.\n"
+        << "The file as it stands is kept alongside as a .bak.\n"
+        << "Continue? [y/N]: " << std::flush;
+    std::string answer;
+    if (!std::getline(in, answer)) {
+        return false;
+    }
+    const std::string_view reply = ht::trimmed(answer);
+    return reply == "y" || reply == "Y" || reply == "yes" || reply == "Yes";
+}
+
+/// Applies --add-habit and --remove-habit and saves the result.
+///
+/// Returns an exit code if the run should stop here, or nullopt to carry on
+/// into the window. The batch is all-or-nothing: on any problem the year is
+/// left exactly as it was found.
+[[nodiscard]] std::optional<int> editHabits(ht::HabitStore& store, const Options& options) {
+    const ht::HabitEditReport plan =
+        ht::planHabitEdits(store.year(), options.habitEdits);
+    if (!plan.ok()) {
+        for (const std::string& problem : plan.problems) {
+            std::cerr << "HabitTracker: " << problem << '\n';
+        }
+        std::cerr << "Nothing was changed. Run --list-habits to see the "
+                     "current names.\n";
+        return EXIT_FAILURE;
+    }
+
+    if (plan.marksDiscarded > 0 && !options.assumeYes &&
+        !confirmDiscard(plan.marksDiscarded, std::cin, std::cout)) {
+        std::cout << "Nothing was changed.\n";
+        return EXIT_SUCCESS;
+    }
+
+    const ht::HabitEditReport done =
+        ht::applyHabitEdits(store.mutableYear(), options.habitEdits);
+    for (const std::string& line : done.applied) {
+        std::cout << line << '\n';
+    }
+
+    // Written now rather than left to the autosave, so the change survives even
+    // if the window never opens.
+    if (!store.save()) {
+        std::cerr << "HabitTracker: could not save to " << store.filePath().string()
+                  << ": " << store.lastError() << '\n';
+        return EXIT_FAILURE;
+    }
+    return std::nullopt;
+}
+
+/// The window is sized to its content but capped, and nothing scales the grid to
+/// fit, so rows past the cap are drawn where they cannot be seen or clicked. Say
+/// so rather than letting them vanish. bootstrap::kMaxHabits is below this cap,
+/// so only a file edited by hand or by --add-habit can reach it.
+void warnIfCrowded(const ht::Year& year, std::ostream& out) {
+    const std::size_t visible = ht::App::maxVisibleHabits();
+    if (year.habitCount() > visible) {
+        out << "HabitTracker: " << year.habitCount()
+            << " habits is more than the window can show (" << visible
+            << "); the rows past that are drawn off-screen.\n";
+    }
+}
+
+int runApplication(const Options& options) {
     // The store outlives the App on purpose: its destructor is the last chance
     // to flush, and it runs after the window is gone.
-    ht::HabitStore store(config.dataDirectory, config.year);
+    ht::HabitStore store(options.config.dataDirectory, options.config.year);
 
     for (const std::string& message : store.loadMessages()) {
         std::cerr << "HabitTracker: " << message << '\n';
@@ -134,6 +254,24 @@ int runApplication(const ht::App::Config& config) {
     if (store.importedLegacyData()) {
         std::cout << "Imported your old month files into " << store.filePath().string()
                   << ".\nThe originals were left where they are.\n";
+    }
+
+    if (!options.habitEdits.empty()) {
+        if (const std::optional<int> code = editHabits(store, options)) {
+            return *code;
+        }
+    }
+
+    warnIfCrowded(store.year(), std::cerr);
+
+    if (options.listHabits) {
+        printHabits(store.year(), std::cout);
+    }
+
+    // Editing and listing report and exit rather than opening the window, so a
+    // run of them can be scripted without leaving a window waiting to be closed.
+    if (options.listHabits || !options.habitEdits.empty()) {
+        return EXIT_SUCCESS;
     }
 
     if (store.year().empty()) {
@@ -149,7 +287,7 @@ int runApplication(const ht::App::Config& config) {
         }
     }
 
-    ht::App app(config, store);
+    ht::App app(options.config, store);
     return app.run();
 }
 
@@ -167,7 +305,7 @@ int main(int argc, char* argv[]) {
             printUsage(std::cout);
             return EXIT_SUCCESS;
         }
-        return runApplication(options->config);
+        return runApplication(*options);
     } catch (const ht::LoadError& e) {
         std::cerr << "HabitTracker: could not read " << e.path().string() << ": "
                   << e.what() << "\n"

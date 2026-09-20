@@ -10,6 +10,9 @@ NavBar::NavBar(const sf::Font& font, sf::Vector2f origin, float width)
     : origin_(origin),
       width_(width),
       previous_(font, "<", origin, {theme::kButtonWidth, theme::kButtonHeight}),
+      addHabit_(font, "+",
+                {origin.x + theme::kButtonWidth + theme::kButtonGap, origin.y},
+                {theme::kButtonWidth, theme::kButtonHeight}),
       next_(font, ">", {origin.x + width - theme::kButtonWidth, origin.y},
             {theme::kButtonWidth, theme::kButtonHeight}),
       label_("", font, theme::kLabelCharacterSize) {
@@ -18,6 +21,16 @@ NavBar::NavBar(const sf::Font& font, sf::Vector2f origin, float width)
 
 void NavBar::setMonth(Month month, int year) {
     label_.setString(std::string(monthName(month)) + " " + std::to_string(year));
+    centreLabel();
+}
+
+void NavBar::setOrigin(sf::Vector2f origin) {
+    // Buttons position themselves once, at construction, so the whole bar is
+    // rebuilt rather than nudged -- there is no half-moved state to get wrong.
+    const sf::Font& font = *label_.getFont();
+    const sf::String label = label_.getString();
+    *this = NavBar(font, origin, width_);
+    label_.setString(label);
     centreLabel();
 }
 
@@ -34,6 +47,9 @@ NavBar::Action NavBar::hitTest(sf::Vector2f point) const {
     if (previous_.contains(point)) {
         return Action::Previous;
     }
+    if (addHabit_.contains(point)) {
+        return Action::AddHabit;
+    }
     if (next_.contains(point)) {
         return Action::Next;
     }
@@ -42,12 +58,14 @@ NavBar::Action NavBar::hitTest(sf::Vector2f point) const {
 
 bool NavBar::updateHover(sf::Vector2f point) {
     const bool previousChanged = previous_.setHovered(previous_.contains(point));
+    const bool addChanged = addHabit_.setHovered(addHabit_.contains(point));
     const bool nextChanged = next_.setHovered(next_.contains(point));
-    return previousChanged || nextChanged;
+    return previousChanged || addChanged || nextChanged;
 }
 
 void NavBar::draw(sf::RenderTarget& target) const {
     previous_.draw(target);
+    addHabit_.draw(target);
     next_.draw(target);
     target.draw(label_);
 }

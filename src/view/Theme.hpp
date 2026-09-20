@@ -24,6 +24,10 @@ inline constexpr float kButtonWidth = 56.F;
 inline constexpr float kButtonHeight = 44.F;
 inline constexpr float kButtonGap = 12.F;
 
+/// The per-row remove control, sitting at the right edge of the name column.
+inline constexpr float kRemoveSize = 22.F;
+inline constexpr float kRemoveGap = 12.F;
+
 /// The window is sized to its content, but never beyond this.
 inline constexpr unsigned kMaxWindowWidth = 1920;
 inline constexpr unsigned kMaxWindowHeight = 1200;
@@ -33,6 +37,8 @@ inline constexpr unsigned kHabitCharacterSize = 19;
 inline constexpr unsigned kDayCharacterSize = 12;
 inline constexpr unsigned kLabelCharacterSize = 24;
 inline constexpr unsigned kButtonCharacterSize = 24;
+inline constexpr unsigned kRemoveCharacterSize = 16;
+inline constexpr unsigned kPromptCharacterSize = 20;
 
 // -- Colours --------------------------------------------------------------
 // sf::Color is not constexpr in SFML 2.5, so these are inline const rather than
@@ -45,6 +51,15 @@ inline const sf::Color kMutedText{134, 142, 121};
 inline const sf::Color kButtonFill{46, 111, 64};
 inline const sf::Color kButtonHoverFill{60, 138, 82};
 inline const sf::Color kButtonText{240, 244, 238};
+
+/// The remove control and the prompt bar. Red enough to read as destructive,
+/// dim enough that a column of them does not shout over the grid.
+inline const sf::Color kRemoveFill{68, 34, 34};
+inline const sf::Color kRemoveHoverFill{122, 48, 48};
+inline const sf::Color kRemoveText{226, 152, 152};
+inline const sf::Color kPromptFill{28, 32, 24};
+inline const sf::Color kCaret{198, 176, 49};
+inline const sf::Color kNoticeText{214, 150, 70};
 
 inline const sf::Color kMarkNone{28, 32, 24};
 inline const sf::Color kMarkDone{46, 111, 64};

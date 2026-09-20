@@ -31,8 +31,14 @@ it goes straight to the grid.
 | Click the **same** mark again | Clear the day |
 | Click the **other** mark | Switch straight to it |
 | **←** / **→**, or the `<` / `>` buttons | Previous / next month |
+| The **+** button, or **A** | Add a habit: type a name, **Enter** to add |
+| The **×** beside a habit | Remove it, after confirming |
 | **Ctrl+S** | Save now |
-| **Esc** | Quit |
+| **Esc** | Cancel the prompt, or quit |
+
+Adding or removing a habit resizes the window to fit, applies to all twelve
+months at once, and saves immediately. Removing one erases its marks for the
+whole year, so it asks first and tells you how many days it would discard.
 
 Today's column is outlined in yellow when you're looking at the current month.
 
@@ -44,10 +50,23 @@ wrong way.
 
 ```
 HabitTracker [--data-dir <path>] [--font <path>] [--year <n>] [--month <1-12>]
+HabitTracker [--add-habit <name>] [--remove-habit <name>] [--list-habits] [--yes]
 ```
 
 `--year` opens a different year; each year is its own file. By default the app
 opens the current year and month.
+
+The habit-list options are the scriptable version of the buttons above: they
+report what they did and exit without opening the window. Either flag may be
+repeated, and a batch is all-or-nothing -- if any name in it is already tracked,
+or is not tracked, nothing is changed at all.
+
+```sh
+HabitTracker --list-habits
+HabitTracker --add-habit "read for 20 minutes" --add-habit "stretch"
+HabitTracker --remove-habit "gym"          # asks before erasing its marks
+HabitTracker --remove-habit "gym" --yes    # for scripts
+```
 
 ## Your data
 
