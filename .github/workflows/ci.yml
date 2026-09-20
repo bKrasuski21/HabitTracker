@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # The model has no dependencies, so this runs everywhere in seconds and gates
+  # every push. Warnings are errors here.
+  tests:
+    name: Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: >
+          cmake -B build -DCMAKE_BUILD_TYPE=Debug
+          -DHABITTRACKER_BUILD_APP=OFF
+          -DHABITTRACKER_BUILD_TESTS=ON
+          -DHABITTRACKER_WERROR=ON
+
+      - name: Build
+        run: cmake --build build --config Debug
+
+      - name: Test
+        run: ctest --test-dir build --build-config Debug --output-on-failure
+
+  # Compiles the GUI, and checks that the Makefile still builds the same set of
+  # files -- the two build systems drifting apart is a bug this repo has had.
+  application:
+    name: Application (ubuntu-latest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install SFML
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsfml-dev
+
+      - name: Configure and build (CMake)
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -DHABITTRACKER_WERROR=ON
+          cmake --build build
+
+      - name: Build and test (Makefile)
+        run: make all
