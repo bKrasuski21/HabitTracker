@@ -14,7 +14,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          # Pinned, not "latest": a glibc binary runs on its build system's
+          # version or newer, never older, so the oldest runner we support sets
+          # the floor for everyone. ubuntu-latest moved to 24.04 and produced
+          # archives that would not start on 22.04.
+          - os: ubuntu-22.04
             artifact: HabitTracker-linux-x86_64
             binary: build/HabitTracker
           - os: macos-latest
@@ -38,14 +42,26 @@ jobs:
             libudev-dev libgl-dev libfreetype-dev
 
       # SFML is built from source here so the archives are self-contained.
+      # The C++ runtime is linked in so libstdc++'s version stops mattering on
+      # the user's machine; glibc cannot be handled this way, which is why the
+      # runner above is pinned.
+      - name: Configure (Linux)
+        if: runner.os == 'Linux'
+        run: >
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++ -static-libgcc"
+
+      # Same rule on macOS: without a deployment target the SDK stamps the
+      # runner's own version as the minimum.
       - name: Configure (macOS universal binary)
         if: runner.os == 'macOS'
         run: >
           cmake -B build -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
 
-      - name: Configure
-        if: runner.os != 'macOS'
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
@@ -54,6 +70,18 @@ jobs:
       # A release that fails its own tests should never be published.
       - name: Test
         run: ctest --test-dir build --build-config Release --output-on-failure
+
+      # Catches a runtime-floor regression here rather than in a bug report from
+      # someone who downloaded the archive.
+      - name: Verify runtime requirements (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          objdump -T build/HabitTracker | grep -oE 'GLIBC_[0-9]+\.[0-9]+' | sort -Vu | tail -1
+          if objdump -T build/HabitTracker | grep -qE 'GLIBC_2\.(3[6-9]|[4-9][0-9])|GLIBCXX_'; then
+            echo "::error::binary requires a newer glibc/libstdc++ than the 22.04 floor"
+            objdump -T build/HabitTracker | grep -E 'GLIBC_2\.(3[6-9]|[4-9][0-9])|GLIBCXX_'
+            exit 1
+          fi
 
       - name: Package
         shell: bash
