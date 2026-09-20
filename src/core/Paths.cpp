@@ -1,6 +1,9 @@
 #include "core/Paths.hpp"
 
 #include <cstdlib>
+#include <cstring>
+#include <optional>
+#include <string>
 #include <system_error>
 
 #if defined(_WIN32)
@@ -47,6 +50,34 @@ namespace {
 #endif
 }
 
+/// The value of an environment variable, or nullopt if it is unset or empty.
+///
+/// Windows reads it wide rather than through std::getenv: MSVC deprecates getenv
+/// (C4996, an error under /WX), and it would narrow a path containing characters
+/// outside the active code page.
+[[nodiscard]] std::optional<std::filesystem::path> environmentPath(const char* name) {
+#if defined(_WIN32)
+    const std::wstring wideName(name, name + std::strlen(name));
+    const DWORD needed = ::GetEnvironmentVariableW(wideName.c_str(), nullptr, 0);
+    if (needed == 0) {
+        return std::nullopt;  // Unset, or set to the empty string.
+    }
+    std::vector<wchar_t> buffer(needed);
+    const DWORD length = ::GetEnvironmentVariableW(wideName.c_str(), buffer.data(),
+                                                   static_cast<DWORD>(buffer.size()));
+    if (length == 0 || length >= buffer.size()) {
+        return std::nullopt;
+    }
+    return std::filesystem::path(std::wstring(buffer.data(), length));
+#else
+    const char* const value = std::getenv(name);
+    if (value == nullptr || *value == '\0') {
+        return std::nullopt;
+    }
+    return std::filesystem::path(value);
+#endif
+}
+
 }  // namespace
 
 std::filesystem::path executableDirectory() {
@@ -70,9 +101,9 @@ std::filesystem::path locateResource(const std::filesystem::path& fileName) {
 }
 
 std::filesystem::path defaultDataDirectory() {
-    if (const char* const override = std::getenv("HABITTRACKER_DATA_DIR");
-        override != nullptr && *override != '\0') {
-        return std::filesystem::path(override);
+    if (const std::optional<std::filesystem::path> fromEnvironment =
+            environmentPath("HABITTRACKER_DATA_DIR")) {
+        return *fromEnvironment;
     }
 
     // A release ships data/ beside the binary; a development build runs the

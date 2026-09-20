@@ -1,6 +1,7 @@
 #pragma once
 
 #include <SFML/Graphics/Font.hpp>
+#include <SFML/Graphics/RectangleShape.hpp>
 #include <SFML/Graphics/RenderTarget.hpp>
 #include <SFML/Graphics/Text.hpp>
 #include <SFML/Graphics/VertexArray.hpp>
@@ -48,6 +49,15 @@ public:
     /// name column, or outside the grid.
     [[nodiscard]] std::optional<Hit> hitTest(sf::Vector2f point) const;
 
+    /// The row whose remove control is under `point`, or nullopt. Checked
+    /// before hitTest(), since the control sits in the name column where
+    /// hitTest() reports nothing.
+    [[nodiscard]] std::optional<std::size_t> removeHitTest(sf::Vector2f point) const;
+
+    /// Highlights the remove control under the cursor. Returns true if anything
+    /// changed, so the caller can skip a needless redraw.
+    bool updateHover(sf::Vector2f point);
+
     /// Size needed to lay out a grid of this shape, excluding the navigation bar.
     [[nodiscard]] static sf::Vector2f contentSize(std::size_t habitCount,
                                                   unsigned dayCount);
@@ -57,16 +67,23 @@ public:
 
 private:
     [[nodiscard]] sf::Vector2f squarePosition(std::size_t row, unsigned day) const;
+    [[nodiscard]] sf::Vector2f removePosition(std::size_t row) const;
     [[nodiscard]] std::size_t vertexBase(std::size_t row, unsigned day) const;
     void rebuildNames(const MonthSheet& sheet);
     void rebuildDayHeader(unsigned dayCount, std::optional<unsigned> today);
     void rebuildSquares(const MonthSheet& sheet, std::optional<unsigned> today);
+    void rebuildRemoveControls();
 
     const sf::Font* font_;  ///< Borrowed; must outlive this view.
     sf::Vector2f origin_;
     sf::VertexArray squares_{sf::Quads};
     std::vector<sf::Text> habitLabels_;
     std::vector<sf::Text> dayLabels_;
+    /// One per habit row. Drawn over the names, so a name long enough to run
+    /// into the column's edge cannot hide the control that removes it.
+    std::vector<sf::RectangleShape> removeBoxes_;
+    std::vector<sf::Text> removeGlyphs_;
+    std::optional<std::size_t> hoveredRemove_;
     std::size_t habitCount_ = 0;
     unsigned dayCount_ = 0;
 };

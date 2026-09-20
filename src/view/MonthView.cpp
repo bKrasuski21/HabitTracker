@@ -63,12 +63,45 @@ std::size_t MonthView::vertexBase(std::size_t row, unsigned day) const {
     return (row * dayCount_ + day) * kVerticesPerSquare;
 }
 
+sf::Vector2f MonthView::removePosition(std::size_t row) const {
+    return {origin_.x + theme::kNameColumnWidth - theme::kRemoveSize - theme::kRemoveGap,
+            squarePosition(row, 0).y + (theme::kSquareSize - theme::kRemoveSize) / 2.F};
+}
+
 void MonthView::setSheet(const MonthSheet& sheet, std::optional<unsigned> today) {
     habitCount_ = sheet.habitCount();
     dayCount_ = sheet.dayCount();
+    hoveredRemove_.reset();  // The row it referred to may no longer exist.
     rebuildNames(sheet);
     rebuildDayHeader(dayCount_, today);
     rebuildSquares(sheet, today);
+    rebuildRemoveControls();
+}
+
+void MonthView::rebuildRemoveControls() {
+    removeBoxes_.clear();
+    removeGlyphs_.clear();
+    removeBoxes_.reserve(habitCount_);
+    removeGlyphs_.reserve(habitCount_);
+
+    for (std::size_t row = 0; row < habitCount_; ++row) {
+        const sf::Vector2f position = removePosition(row);
+
+        sf::RectangleShape box({theme::kRemoveSize, theme::kRemoveSize});
+        box.setPosition(position);
+        box.setFillColor(theme::kRemoveFill);
+        box.setOutlineThickness(theme::kOutlineThickness);
+        box.setOutlineColor(theme::kSquareOutline);
+        removeBoxes_.push_back(box);
+
+        sf::Text glyph("x", *font_, theme::kRemoveCharacterSize);
+        glyph.setFillColor(theme::kRemoveText);
+        const sf::FloatRect bounds = glyph.getLocalBounds();
+        glyph.setPosition(
+            position.x + (theme::kRemoveSize - bounds.width) / 2.F - bounds.left,
+            position.y + (theme::kRemoveSize - bounds.height) / 2.F - bounds.top);
+        removeGlyphs_.push_back(std::move(glyph));
+    }
 }
 
 void MonthView::rebuildNames(const MonthSheet& sheet) {
@@ -146,6 +179,36 @@ void MonthView::draw(sf::RenderTarget& target) const {
     for (const sf::Text& label : habitLabels_) {
         target.draw(label);
     }
+    for (const sf::RectangleShape& box : removeBoxes_) {
+        target.draw(box);
+    }
+    for (const sf::Text& glyph : removeGlyphs_) {
+        target.draw(glyph);
+    }
+}
+
+std::optional<std::size_t> MonthView::removeHitTest(sf::Vector2f point) const {
+    for (std::size_t row = 0; row < removeBoxes_.size(); ++row) {
+        if (removeBoxes_[row].getGlobalBounds().contains(point)) {
+            return row;
+        }
+    }
+    return std::nullopt;
+}
+
+bool MonthView::updateHover(sf::Vector2f point) {
+    const std::optional<std::size_t> row = removeHitTest(point);
+    if (row == hoveredRemove_) {
+        return false;
+    }
+    if (hoveredRemove_.has_value() && *hoveredRemove_ < removeBoxes_.size()) {
+        removeBoxes_[*hoveredRemove_].setFillColor(theme::kRemoveFill);
+    }
+    if (row.has_value()) {
+        removeBoxes_[*row].setFillColor(theme::kRemoveHoverFill);
+    }
+    hoveredRemove_ = row;
+    return true;
 }
 
 std::optional<MonthView::Hit> MonthView::hitTest(sf::Vector2f point) const {

@@ -13,13 +13,16 @@ namespace ht::view {
 /// The month stepper below the grid: previous, the month and year, next.
 class NavBar final {
 public:
-    enum class Action { None, Previous, Next };
+    enum class Action { None, Previous, Next, AddHabit };
 
     NavBar(const sf::Font& font, sf::Vector2f origin, float width);
 
     NavBar() = delete;
 
     void setMonth(Month month, int year);
+
+    /// Moves the bar, for when adding or removing a habit resizes the window.
+    void setOrigin(sf::Vector2f origin);
 
     /// Which control `point` is over, if any.
     [[nodiscard]] Action hitTest(sf::Vector2f point) const;
@@ -35,6 +38,7 @@ private:
     sf::Vector2f origin_;
     float width_;
     Button previous_;
+    Button addHabit_;
     Button next_;
     sf::Text label_;
 };
