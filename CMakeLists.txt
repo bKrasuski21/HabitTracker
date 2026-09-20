@@ -12,6 +12,18 @@ option(HABITTRACKER_BUILD_TESTS "Build the test suite" ON)
 option(HABITTRACKER_BUILD_APP "Build the GUI application (requires SFML)" ON)
 option(HABITTRACKER_WERROR "Treat warnings as errors" OFF)
 
+# --- MSVC runtime -------------------------------------------------------------
+# Static CRT, so the shipped .exe runs without the VC++ Redistributable.
+#
+# This has to be decided before the first target exists. CMAKE_MSVC_RUNTIME_LIBRARY
+# is read at add_library()/add_executable() time, so setting it further down the
+# file leaves every target created above it on the default /MD and the final link
+# fails with LNK2038, plus unresolved __imp__* CRT symbols. Every target in this
+# project must agree, so this is the one place that decides.
+if(MSVC)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
 # --- Warnings -----------------------------------------------------------------
 # An interface target so every one of our own targets gets the same flags, and
 # fetched dependencies get none of them.
@@ -48,16 +60,27 @@ target_link_libraries(habittracker_core PRIVATE habittracker_warnings)
 # which is what CI does on every platform.
 if(HABITTRACKER_BUILD_APP)
     # Prefer an installed SFML so a clean build needs no network; fall back to
-    # building it from source, which is what the release workflow does.
-    find_package(SFML 2.5 COMPONENTS graphics window system QUIET)
+    # building it from source, which is what the release workflow does and what
+    # anyone building this without SFML installed gets automatically.
+    #
+    # Not on MSVC, though. We link the static CRT above, a system SFML is built
+    # against the DLL one, and mixing them is the LNK2038 this used to ship. On
+    # Windows the from-source path is the only supported one.
+    if(NOT MSVC)
+        find_package(SFML 2.5 COMPONENTS graphics window system QUIET)
+    endif()
     if(NOT SFML_FOUND)
-        message(STATUS "SFML not found locally; fetching 2.6.2")
+        message(STATUS "Building SFML 2.6.2 from source")
         set(BUILD_SHARED_LIBS OFF)
-        if(MSVC)
-            set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-        endif()
         set(SFML_BUILD_AUDIO OFF CACHE BOOL "" FORCE)
         set(SFML_BUILD_NETWORK OFF CACHE BOOL "" FORCE)
+
+        # SFML 2.6.2 declares cmake_minimum_required(VERSION 3.7.2), which puts
+        # CMP0091 back to OLD inside its own scope: CMAKE_MSVC_RUNTIME_LIBRARY is
+        # ignored there and it would compile /MD no matter what we set. Its own
+        # option is the only thing that moves it, and it refuses to combine with
+        # BUILD_SHARED_LIBS, which is already off above.
+        set(SFML_USE_STATIC_STD_LIBS ON CACHE BOOL "" FORCE)
 
         include(FetchContent)
         FetchContent_Declare(SFML
@@ -65,7 +88,6 @@ if(HABITTRACKER_BUILD_APP)
             GIT_TAG 2.6.2
             GIT_SHALLOW TRUE)
         FetchContent_MakeAvailable(SFML)
-        set(HABITTRACKER_SFML_STATIC ON)
     endif()
 
     # --- Application ----------------------------------------------------------
@@ -75,10 +97,6 @@ if(HABITTRACKER_BUILD_APP)
     add_executable(HabitTracker ${HABITTRACKER_APP_SOURCES} src/main.cpp)
     target_link_libraries(HabitTracker
         PRIVATE habittracker_core habittracker_warnings sfml-graphics sfml-window sfml-system)
-
-    if(WIN32 AND HABITTRACKER_SFML_STATIC)
-        target_compile_definitions(HabitTracker PRIVATE SFML_STATIC)
-    endif()
 endif()  # HABITTRACKER_BUILD_APP
 
 # --- Tests --------------------------------------------------------------------

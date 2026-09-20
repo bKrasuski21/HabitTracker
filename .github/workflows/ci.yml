@@ -15,7 +15,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          # Warnings-as-errors only where the GUI sources are already known
+          # clean. The tests job covers core under MSVC /W4 /WX; src/app and
+          # src/view have never been through it, and turning it on here would
+          # fail for reasons unrelated to what this job is guarding.
+          - os: ubuntu-latest
+            werror: 'ON'
+          - os: macos-latest
+            werror: 'OFF'
+          - os: windows-latest
+            werror: 'OFF'
     steps:
       - uses: actions/checkout@v4
 
@@ -32,23 +42,59 @@ jobs:
       - name: Test
         run: ctest --test-dir build --build-config Debug --output-on-failure
 
-  # Compiles the GUI, and checks that the Makefile still builds the same set of
-  # files -- the two build systems drifting apart is a bug this repo has had.
+  # Compiles the GUI on every platform we release for. This used to be Linux
+  # only, so a Windows-only link failure could not surface until a release tag
+  # was already pushed -- which is exactly how one shipped.
   application:
-    name: Application (ubuntu-latest)
-    runs-on: ubuntu-latest
+    name: Application (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Warnings-as-errors only where the GUI sources are already known
+          # clean. The tests job covers core under MSVC /W4 /WX; src/app and
+          # src/view have never been through it, and turning it on here would
+          # fail for reasons unrelated to what this job is guarding.
+          - os: ubuntu-latest
+            werror: 'ON'
+          - os: macos-latest
+            werror: 'OFF'
+          - os: windows-latest
+            werror: 'OFF'
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install SFML
+      # Linux is the one platform with a packaged SFML, so it covers the
+      # find_package() path. macOS and Windows build SFML from source and cover
+      # the FetchContent path that users without SFML installed get.
+      - name: Install SFML (Linux)
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libsfml-dev
 
-      - name: Configure and build (CMake)
-        run: |
-          cmake -B build -DCMAKE_BUILD_TYPE=Release -DHABITTRACKER_WERROR=ON
-          cmake --build build
+      # Building SFML takes minutes; the tag is the whole cache key because that
+      # is the only thing that changes what gets built.
+      - name: Cache SFML build
+        if: runner.os != 'Linux'
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: sfml-2.6.2-${{ matrix.os }}
 
+      - name: Configure and build (CMake)
+        shell: bash
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release \
+            -DHABITTRACKER_WERROR=${{ matrix.werror }}
+          cmake --build build --config Release
+
+      - name: Test
+        run: ctest --test-dir build --build-config Release --output-on-failure
+
+      # Checks that the Makefile still builds the same set of files -- the two
+      # build systems drifting apart is a bug this repo has had.
       - name: Build and test (Makefile)
+        if: runner.os == 'Linux'
         run: make all
